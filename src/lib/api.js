@@ -6,7 +6,7 @@
 const FORCED_STATIC = import.meta.env.MODE === "pages" || import.meta.env.VITE_STATIC_API === "true";
 let serverProbe = null;
 
-function hasServer() {
+export function hasServer() {
   if (FORCED_STATIC) return Promise.resolve(false);
   if (!import.meta.env.DEV) return Promise.resolve(true);
   serverProbe ??= fetch("/api/health", { headers: { Accept: "application/json" } })

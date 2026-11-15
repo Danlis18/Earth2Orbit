@@ -329,3 +329,13 @@ test("a configured free-tier key takes priority and stays on the server", async 
   assert.match(sent.url, /generativelanguage/);
   assert.equal(sent.auth, "Bearer g1");
 });
+
+test("the AI prompt keeps ORI on topic and declines unrelated questions", async () => {
+  const { systemPrompt } = await import("./ai.mjs");
+  const uk = systemPrompt("uk", "FACTS");
+  assert.match(uk, /OUT OF SCOPE/);
+  assert.match(uk, /not related to the ORBITAL project/);
+  assert.match(uk, /general knowledge/);
+  assert.match(systemPrompt("uk", "F", { strict: true }), /CAUTION/);
+  assert.doesNotMatch(uk, /CAUTION/);
+});

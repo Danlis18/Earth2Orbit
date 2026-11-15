@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "../lib/api";
 import Modal from "./Modal.jsx";
-import { createAvatar } from "../scene/avatar.js";
+import { createEntity } from "../scene/entity.js";
+import { useProfile } from "../lib/profile.jsx";
 import { useLang } from "../i18n/LanguageContext.jsx";
-import { createUkSpeaker, isUkVoiceCached, loadUkVoice, UK_MODEL_MB } from "../lib/ukVoice.js";
+import { createUkSpeaker, isUkVoiceCached, loadUkVoice, UK_MODEL_MB, UK_SPEAKERS } from "../lib/ukVoice.js";
 
 const browserVoice = (lang) =>
   window.speechSynthesis?.getVoices().find((voice) => voice.lang.toLowerCase().startsWith(lang));
@@ -23,6 +24,8 @@ export default function GuideModal({
   onClose,
 }) {
   const { lang, tr } = useLang();
+  const profile = useProfile();
+  const settings = profile?.settings || {};
   const L = (uk, en) => (lang === "en" ? en : uk);
   const canvas = useRef(null),
     speaking = useRef(false),
@@ -33,8 +36,8 @@ export default function GuideModal({
     ukSpeaker = useRef(null);
   const intro =
     L(
-      "Вітаю! Я ОРІ — науковий гід ORBITAL. Відповідаю на запитання про весь проєкт: каталог земних аналогів, методику, джерела, клімат NASA POWER, карту й кандидатури. Відповідаю лише з даних проєкту, а якщо відповіді в них немає — так і скажу.",
-      "Hello! I’m ORI, the ORBITAL science guide. Ask me about the whole project: the Earth analog catalog, methodology, sources, NASA POWER climate, the map and candidates. I answer only from the project’s data, and if it has no answer I’ll say so.",
+      "Вітаю! Я ОРІ — інтелект ORBITAL. Питай про проєкт і його каталог земних аналогів, про Місяць, Марс, космічні місії, підготовку астронавтів, геологію й клімат інших світів. Спершу спираюся на дані проєкту, а загальні наукові знання позначаю. На запитання не за темою чесно скажу, що вони не стосуються ORBITAL.",
+      "Hello! I’m ORI, the intelligence of ORBITAL. Ask me about the project and its Earth analog catalog, the Moon, Mars, space missions, astronaut training, and the geology and climate of other worlds. I rely on project data first and flag general scientific knowledge. If a question is off topic, I’ll tell you it isn’t related to ORBITAL.",
     ) +
     (site
       ? L(
@@ -49,7 +52,8 @@ export default function GuideModal({
     [busy, setBusy] = useState(false),
     [status, setStatus] = useState(tr("Перевірка підключення AI…")),
     [voiceStatus, setVoiceStatus] = useState(tr("Озвучення голосом браузера")),
-    [autoSpeak, setAutoSpeak] = useState(true),
+    autoSpeak = settings.guideAutoVoice !== false,
+    setAutoSpeak = (value) => profile?.updateSettings({ guideAutoVoice: value }),
     [speechActive, setSpeechActive] = useState(false),
     [voiceReady, setVoiceReady] = useState(null), // null = ще перевіряємо
     [ukCached, setUkCached] = useState(false),
@@ -69,8 +73,14 @@ export default function GuideModal({
     return () => window.speechSynthesis?.removeEventListener?.("voiceschanged", check);
   }, [lang]);
   function ukNeural() {
+    const speakerId = UK_SPEAKERS[settings.guideVoice] ?? UK_SPEAKERS.lada;
+    if (ukSpeaker.current && ukSpeaker.current.speakerId !== speakerId) {
+      ukSpeaker.current.stop();
+      ukSpeaker.current = null;
+    }
     if (!ukSpeaker.current)
       ukSpeaker.current = createUkSpeaker({
+        speaker: speakerId,
         onProgress: (p) =>
           setVoiceStatus(`Завантажую український голос… ${Math.round(p * 100)}% (${UK_MODEL_MB} МБ, лише один раз)`),
         onStart: () => {
@@ -90,6 +100,7 @@ export default function GuideModal({
           setVoiceStatus("Не вдалося завантажити український голос. Розповідь є в чаті.");
         },
       });
+    ukSpeaker.current.speakerId = speakerId;
     return ukSpeaker.current;
   }
   function stop() {
@@ -146,13 +157,13 @@ export default function GuideModal({
   useEffect(() => {
     let cleanup;
     try {
-      cleanup = createAvatar(canvas.current, () => {
+      cleanup = createEntity(canvas.current, () => {
         if (!speaking.current) return 0;
         const neural = ukSpeaker.current?.level() ?? 0;
         // Для браузерного голосу рівня гучності немає — імітуємо мовлення.
         level.current = neural || 0.35 + 0.65 * Math.abs(Math.sin(performance.now() / 85));
         return level.current;
-      }, { onInteract: () => setHintGone(true) });
+      }, { onInteract: () => setHintGone(true), reduced: Boolean(settings.reduceMotion) });
     } catch {
       setVoiceStatus(
         tr("3D-аватар недоступний у цьому браузері. Розповідь є в чаті."),

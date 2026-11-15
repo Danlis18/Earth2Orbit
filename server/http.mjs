@@ -1,4 +1,6 @@
 import { handleAPI } from "./api.mjs";
+import { createAccountHandler } from "./accounts.mjs";
+const handleAccount = createAccountHandler();
 export async function serveAPI(req, res, env = {}) {
   try {
     let length = 0;
@@ -23,10 +25,12 @@ export async function serveAPI(req, res, env = {}) {
       headers: req.headers,
       ...(bytes.length ? { body: bytes } : {}),
     });
-    const response = await handleAPI(request, {
-      ...env,
-      RUNTIME: "node-" + process.versions.node,
-    });
+    const response =
+      (await handleAccount(request, env)) ||
+      (await handleAPI(request, {
+        ...env,
+        RUNTIME: "node-" + process.versions.node,
+      }));
     res.writeHead(response.status, Object.fromEntries(response.headers));
     res.end(Buffer.from(await response.arrayBuffer()));
   } catch (error) {

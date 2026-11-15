@@ -24,6 +24,9 @@ import MapModal from "./components/MapModal.jsx";
 import GuideModal from "./components/GuideModal.jsx";
 import LanguageSwitch from "./components/LanguageSwitch.jsx";
 import { useLang } from "./i18n/LanguageContext.jsx";
+import AuthScreen from "./components/AuthScreen.jsx";
+import ProfileModal from "./components/ProfileModal.jsx";
+import { useProfile } from "./lib/profile.jsx";
 
 const traitName = (id) => criteria.find((item) => item.id === id)?.label || id;
 const targetName = (id, lang = "uk") =>
@@ -107,7 +110,8 @@ function SolarStory({ tr }) {
 }
 
 export default function App() {
-  const { lang, tr } = useLang();
+  const { lang, setLang, tr } = useLang();
+  const profile = useProfile();
   // Interface-only settings: all scientific and 3D behavior stays unchanged.
   const [panelWidth, setPanelWidth] = useState(() => {
     const saved = Number(localStorage.getItem("orbital.panelWidth"));
@@ -119,8 +123,10 @@ export default function App() {
   });
   const dragPanel = useRef(null);
   const updateScale = useCallback((next) => {
-    setInterfaceScale(Math.min(1.5, Math.max(0.75, Math.round(next * 20) / 20)));
-  }, []);
+    const value = Math.min(1.5, Math.max(0.75, Math.round(next * 20) / 20));
+    setInterfaceScale(value);
+    profile.updateSettings({ interfaceScale: value });
+  }, [profile]);
   useEffect(() => {
     document.documentElement.style.zoom = String(interfaceScale);
     localStorage.setItem("orbital.interfaceScale", String(interfaceScale));
@@ -360,6 +366,35 @@ export default function App() {
     setCinematic(false);
     setModal(null);
   }, []);
+  // Відкрити будь-яку локацію за id (з профілю, нотаток).
+  const openById = useCallback(
+    (id) => {
+      const w = catalog.findIndex((item) => item.places.some((place) => place.id === id));
+      if (w < 0) return;
+      setSelection({ world: w, site: catalog[w].places.findIndex((place) => place.id === id) });
+      setTab("analogs");
+      setCinematic(false);
+      setModal(null);
+    },
+    [catalog],
+  );
+  // Особисті налаштування профілю застосовуємо до сайту.
+  const S = profile.settings;
+  useEffect(() => setMarkers(Boolean(S.markers)), [S.markers]);
+  useEffect(() => setSpeed(String(S.orbitSpeed)), [S.orbitSpeed]);
+  useEffect(() => {
+    if (S.interfaceScale >= 0.75 && S.interfaceScale <= 1.5) setInterfaceScale(S.interfaceScale);
+  }, [S.interfaceScale]);
+  const appliedFor = useRef(null);
+  useEffect(() => {
+    if (profile.status !== "ready") return;
+    const who = profile.user?.id || "guest";
+    if (appliedFor.current === who) return;
+    appliedFor.current = who;
+    if (S.lang && S.lang !== lang) setLang(S.lang);
+    if (Number.isInteger(S.startWorld) && S.startWorld > 0 && S.startWorld < catalog.length) selectWorld(S.startWorld);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile.status, profile.user?.id]);
   function toggleTrait(id) {
     setTraits((values) =>
       values.includes(id)
@@ -582,6 +617,26 @@ export default function App() {
       {world.id === "earth" && (
         <ClimatePanel lat={site.lat} lon={site.lon} />
       )}
+      <section className="place-note">
+        <h3>
+          {lang === "en" ? "✎ My notes" : "✎ Мої нотатки"}
+          <small>
+            {profile.notes[site.id]
+              ? (lang === "en" ? "saved · " : "збережено · ") +
+                new Date(profile.notes[site.id].updatedAt).toLocaleTimeString(lang === "en" ? "en-GB" : "uk-UA", { hour: "2-digit", minute: "2-digit" })
+              : profile.user
+                ? lang === "en" ? "saved to your account" : "зберігається в акаунті"
+                : lang === "en" ? "saved in this browser" : "зберігається в цьому браузері"}
+          </small>
+        </h3>
+        <textarea
+          value={profile.notes[site.id]?.text || ""}
+          onChange={(event) => profile.setNote(site.id, event.target.value)}
+          maxLength={4000}
+          placeholder={lang === "en" ? "Your observations, ideas, questions about this location…" : "Твої спостереження, ідеї, запитання про цю локацію…"}
+          aria-label={lang === "en" ? "My note for this location" : "Моя нотатка до цієї локації"}
+        />
+      </section>
       <div className="detail-actions">
         <button className="action" onClick={() => setModal({ type: "guide" })}>
           {tr("✧ Запитати гіда ОРІ")}
@@ -629,6 +684,17 @@ export default function App() {
         </nav>
         <div className="top-actions">
           <LanguageSwitch />
+          <button
+            className="outline profile-launch"
+            aria-label={lang === "en" ? "Open my profile" : "Відкрити мій профіль"}
+            aria-haspopup="dialog"
+            onClick={() => setModal({ type: "profile" })}
+          >
+            <span className={"profile-avatar" + (profile.user ? "" : " guest")}>
+              {profile.user ? profile.user.name.trim().slice(0, 1).toUpperCase() : "◈"}
+            </span>
+            <span>{profile.user ? profile.user.name.split(" ")[0] : lang === "en" ? "Profile" : "Профіль"}</span>
+          </button>
           <button
             className="outline guide-launch"
             aria-label={lang === "en" ? "Open the ORI guide" : "Відкрити гіда ОРІ"}
@@ -1149,9 +1215,19 @@ export default function App() {
           setMessages={setGuideChat}
           compareIds={compareIds}
           onAction={guideAct}
+          settings={profile.settings}
           onClose={() => setModal(null)}
         />
       )}
+      {modal?.type === "profile" && (
+        <ProfileModal
+          places={localizedCatalog.flatMap((w) => w.places.map((place) => ({ ...place, worldName: w.name })))}
+          worlds={localizedCatalog}
+          onOpenPlace={openById}
+          onClose={() => setModal(null)}
+        />
+      )}
+      {profile.needsAuth && <AuthScreen />}
     </>
   );
 }
